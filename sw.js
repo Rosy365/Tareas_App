@@ -4,8 +4,8 @@ self.addEventListener("install", e => {
       return cache.addAll([
         "./",
         "index.html",
-        "style.css",    // <--- AGREGAR ESTO
-        "script.js",    // <--- AGREGAR ESTO
+        "style.css",    
+        "script.js",    
         "manifest.json",
         "icon-192.png"
       ]);
@@ -13,7 +13,6 @@ self.addEventListener("install", e => {
   );
 });
 
-// El evento fetch se mantiene igual, ya que es una estrategia 
 // "Cache First" con actualización dinámica.
 self.addEventListener("fetch", e => {
   e.respondWith(
@@ -24,7 +23,7 @@ self.addEventListener("fetch", e => {
           cache.put(e.request, response.clone());
           return response;
         });
-      }).catch(() => caches.match("index.html")); // Quité la barra "/" para consistencia
+      }).catch(() => caches.match("index.html")); 
     })
   );
 });

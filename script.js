@@ -1,92 +1,230 @@
+// Configuración y Gestión de IndexedDB
+const dbManager = {
+  dbName: 'TasksDB',
+  dbVersion: 1,
+  storeName: 'tasks',
+  db: null,
 
-let tasks = JSON.parse(localStorage.getItem('tasks')) || [];
-let editIndex = null;
+  init() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.dbName, this.dbVersion);
+      request.onerror = (e) => reject("Error al abrir IndexedDB: " + e.target.error);
+      
+      request.onsuccess = (e) => {
+        this.db = e.target.result;
+        resolve();
+      };
 
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(this.storeName)) {
+          db.createObjectStore(this.storeName, { keyPath: 'id', autoIncrement: true });
+        }
+      };
+    });
+  },
+
+  getAll() {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.storeName], 'readonly');
+      const store = transaction.objectStore(this.storeName);
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = (e) => reject(e.target.error);
+    });
+  },
+
+  save(task) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.storeName], 'readwrite');
+      const store = transaction.objectStore(this.storeName);
+      const request = store.put(task);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = (e) => reject(e.target.error);
+    });
+  },
+
+  delete(id) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.storeName], 'readwrite');
+      const store = transaction.objectStore(this.storeName);
+      const request = store.delete(id);
+      request.onsuccess = () => resolve();
+      request.onerror = (e) => reject(e.target.error);
+    });
+  }
+};
+
+// Variables globales
+let tasks = [];
+let editId = null;
 let currentDate = new Date();
 let currentMonth = currentDate.getMonth();
 let currentYear = currentDate.getFullYear();
+let currentFilter = 'pending';
+let searchQuery = '';
 
-function saveTasks(){ localStorage.setItem('tasks', JSON.stringify(tasks)); }
+// --- SISTEMA DE NOTIFICACIONES TOAST ---
+function showToast(message, type = 'success') {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  
+  let icon = '✅';
+  if (type === 'error') icon = '❌';
+  if (type === 'info') icon = 'ℹ️';
+
+  toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+  container.appendChild(toast);
+
+  setTimeout(() => toast.classList.add('show'), 10);
+
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
 function toggleDarkMode() {
   const body = document.body;
   const btn = document.getElementById('themeToggle');
-  
   body.classList.toggle('dark');
   
   if (body.classList.contains('dark')) {
-    btn.innerHTML = '☀️'; // Cambia a sol cuando está en modo oscuro // 
-    btn.style.textShadow = "0 0 10px #FFD700"; // Efecto de resplandor
+    btn.innerHTML = '☀️'; 
+    btn.style.textShadow = "0 0 10px #FFD700"; 
   } else {
-    btn.innerHTML = '🌙'; // Regresa a luna en modo claro 
+    btn.innerHTML = '🌙'; 
     btn.style.textShadow = "0 0 10px #ffeb7c";
   }
 }
 
 function renderStats(){
   const container = document.getElementById('stats');
-  if(!container) return; // Seguridad
+  if(!container) return; 
 
   const total = tasks.length;
   const completed = tasks.filter(t => t.completed).length;
-  const pending = total - completed;
   const percent = total ? Math.round((completed / total) * 100) : 0;
-
   const today = new Date();
-  const overdue = tasks.filter(t => t.date && new Date(t.date) < today && !t.completed).length;
+  today.setHours(0, 0, 0, 0); 
+  const overdue = tasks.filter(t => {
+    if (!t.date || t.completed) return false;
+    const [year, month, day] = t.date.split('-');
+    const taskDeadline = new Date(year, month - 1, day);
+    return taskDeadline < today;
+  }).length;
+  const pending = total - (completed + overdue);
 
   container.innerHTML = `
-    <div style="line-height: 1.6;">
-      <strong>📊 Estadísticas</strong><br>
-      <div style="background: #eee; border-radius: 5px; height: 10px; margin: 5px 0;">
+  <div style="padding: 5px;">
+  <details>
+    <summary style="font-size: 1.1em; font-weight: bold; cursor: pointer; user-select: none;">
+      📊 Estadísticas
+    </summary>
+    <div style="margin:10px;">
+      <div class="osc" style="background: #eee; border-radius: 5px; height: 10px; width: 100%; margin-bottom: 5px;">
         <div style="background: #4CAF50; width: ${percent}%; height: 100%; border-radius: 5px; transition: width 0.5s;"></div>
       </div>
-      Total: <b>${total}</b> | Completadas: <b>${completed}</b><br>
-      Pendientes: <b>${pending}</b> | 🚨 Vencidas: <b style="color: #e53935;">${overdue}</b>
-    </div>
-  `;
-}
 
-let currentFilter = 'pending'; // Variable global nueva
+    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+      <div style="display: flex; flex-direction: column; gap: 2px; font-size: 0.9em;">
+        <div style="font-size: 0.9em; color: gray; margin-bottom: 12px;"><b>${percent}%</b> completadas</div>
+        <div>
+          <span class="link ${currentFilter === 'all' ? 'active-filter' : ''}" style="cursor: pointer;" onclick="filterTasks('all', this)">Total: <b>${total}</b></span>
+          <span style="color: #ccc; margin: 0 6px;">|</span>
+          <span class="link ${currentFilter === 'completed' ? 'active-filter' : ''}" style="cursor: pointer;" onclick="filterTasks('completed', this)">Completadas: <b>${completed}</b></span>
+        </div>
+        <div>
+          <span class="link ${currentFilter === 'pending' ? 'active-filter' : ''}" style="cursor: pointer;" onclick="filterTasks('pending', this)">Pendientes: <b>${pending}</b></span>
+          <span style="color: #ccc; margin: 0 6px;">|</span>
+          <span class="link ${currentFilter === 'overdue' ? 'active-filter' : ''}" style="cursor: pointer;" onclick="filterTasks('overdue', this)">
+            <span style="font-size: 1.1em;">🚨</span> <span>Vencidas: <b style="color: #d9383a;">${overdue}</b></span>
+          </span>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; justify-content: center; gap: 6px;">
+        <button class="btn-filter" onclick="filterTasks('important', this)" style="cursor: pointer; padding: 6px 16px; display: inline-flex; justify-content: center; align-items: center; gap: 4px; width: 100%;">
+          <span>⭐</span> <b>${tasks.filter(t => t.important && !t.completed).length}</b>
+        </button>
+        <button class="btn-filter" onclick="filterTasks('normal', this)" 
+                style="cursor: pointer; padding: 6px 16px; display: inline-flex; justify-content: center; align-items: center; gap: 4px; width: 100%;">
+          <span>📄</span> <b>${tasks.filter(t => !t.important && !t.completed).length}</b>
+        </button>
+      </div>
+    </div>
+  </div>
+  </details>
+  <div style="width: 100%;">
+    <input type="text" id="searchBar" placeholder="🔍 Buscar tarea..." onkeyup="updateSearch()" style="width: 100%; padding: 8px; box-sizing: border-box; border-radius: 5px; border: 1px solid #ccc;">
+  </div>
+  </div>
+`;
+}
 
 function filterTasks(type, btn) {
   currentFilter = type;
-  
-  // Cambiar estado visual de los botones
   document.querySelectorAll('.btn-filter').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+  document.querySelectorAll('.link').forEach(l => l.classList.remove('active-filter'));
   
+  if (btn) {
+    if (btn.classList.contains('link')) {
+      btn.classList.add('active-filter'); 
+    } else {
+      btn.classList.add('active'); 
+    }
+  }
   renderTasks();
 }
 
-let searchQuery = ''; // Nueva variable global para el texto de búsqueda
-
 function updateSearch() {
   searchQuery = document.getElementById('searchBar').value.toLowerCase();
-  renderTasks(); // Volvemos a dibujar la lista con el nuevo filtro de texto
+  renderTasks(); 
 }
 
 function renderTasks() {
   const container = document.getElementById('tasks');
   container.innerHTML = '';
   const today = new Date();
-  today.setHours(0, 0, 0, 0); // Normalizamos hoy para comparar fechas
+  today.setHours(0, 0, 0, 0); 
 
-  // 1. CLONAR Y ORDENAR por fecha (Ascendente)
-  // Las tareas sin fecha se van al final
   let sortedTasks = [...tasks].sort((a, b) => {
     if (!a.date) return 1;
     if (!b.date) return -1;
     return new Date(a.date) - new Date(b.date);
   });
 
-  // 2. FILTRAR por categoría
   let filtered = sortedTasks;
-  if (currentFilter === 'pending') filtered = sortedTasks.filter(t => !t.completed);
+  if (currentFilter === 'completed') filtered = sortedTasks.filter(t => t.completed);
+  
+  if (currentFilter === 'overdue') {
+    filtered = sortedTasks.filter(t => {
+      if (!t.date || t.completed) return false;
+      const [year, month, day] = t.date.split('-');
+      const taskDate = new Date(year, month - 1, day);
+      return taskDate < today;
+    });
+  }
+
+  if (currentFilter === 'pending') {
+    filtered = sortedTasks.filter(t => {
+      if (t.completed) return false;
+      if (!t.date) return true; 
+      const [year, month, day] = t.date.split('-');
+      const taskDate = new Date(year, month - 1, day);
+      return taskDate >= today;
+    });
+  }
+
   if (currentFilter === 'important') filtered = sortedTasks.filter(t => t.important && !t.completed);
   if (currentFilter === 'normal') filtered = sortedTasks.filter(t => !t.important && !t.completed);
-  if (currentFilter === 'completed') filtered = sortedTasks.filter(t => t.completed);
 
-  // 3. FILTRAR por búsqueda
   if (searchQuery) {
     filtered = filtered.filter(t => 
       t.title.toLowerCase().includes(searchQuery) || 
@@ -94,41 +232,40 @@ function renderTasks() {
     );
   }
 
-  // 4. RENDERIZAR
   filtered.forEach((task) => {
-    const originalIndex = tasks.indexOf(task); 
     const taskDate = task.date ? new Date(task.date + 'T00:00:00') : null;
-    
     const isOverdue = taskDate && taskDate < today && !task.completed;
     const isToday = taskDate && taskDate.getTime() === today.getTime() && !task.completed;
 
     const div = document.createElement('div');
-    div.id = 'task-' + originalIndex;
+    div.id = 'task-' + task.id;
 
-    // Lógica de colores mejorada
     let statusClass = '';
     if (task.important && !task.completed) statusClass = 'priority-important';
-    if (isToday) statusClass = 'near-deadline'; // Tono rojizo si es para hoy
-    if (isOverdue) statusClass = 'overdue';    // Franja roja si ya pasó
+    if (isToday) statusClass = 'near-deadline'; 
+    if (isOverdue) statusClass = 'overdue';    
 
     div.className = `card ${statusClass} ${task.completed ? 'task-done' : ''}`;
 
     div.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: start;">
-        <div>
+      <div style="display: flex; justify-content: space-between; align-items: start; gap: 10px;">
+        <div style="flex: 1;">
           <strong>${task.title}</strong><br>
           <small>${task.desc || ''}</small>
+          ${task.fileData ? `<br><span class="file-link" onclick="openFileById(${task.id})">📎 Ver archivo</span>` : ''}
         </div>
-        ${task.important ? '<span>⭐</span>' : ''}
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right;">
+          ${task.important ? '<span>⭐</span>' : ''}
+          ${task.recurring && task.recurring !== 'none' ? `<small style="color: #4cadfc; font-weight: bold; font-size: 0.75em;">🔄 ${task.recurring}</small>` : ''}
+          <div class="date" style="font-size: 0.85em; width: 100%; font-weight: ${isToday ? 'bold' : 'normal'}">
+            ${task.date || 'Sin fecha'} ${isToday ? '— ¡Es hoy!' : ''}
+          </div>
+        </div>
       </div>
-      <div class="date" style="margin-top:5px; font-weight: ${isToday ? 'bold' : 'normal'}">
-        ${task.date || 'Sin fecha'} ${isToday ? '— ¡Es hoy!' : ''}
-      </div>
-      ${task.fileData ? `<span class="file-link" onclick="openFile(${originalIndex})">📎 Ver archivo</span>` : ''}
       <div class="actions">
-        <button class="btn-complete" onclick="toggleComplete(${originalIndex})">${task.completed ? '↩️' : '✅'}</button>
-        <button class="btn-edit" onclick="openEdit(${originalIndex})">✏️</button>
-        <button class="btn-delete" onclick="deleteTask(${originalIndex})">🗑️</button>
+        <button class="btn-complete" onclick="toggleComplete(${task.id})">${task.completed ? '↩️' : '✅'}</button>
+        <button class="btn-edit" onclick="openEdit(${task.id})">✏️</button>
+        <button class="btn-delete" onclick="deleteTask(${task.id})">🗑️</button>
       </div>
     `;
     container.appendChild(div);
@@ -139,19 +276,16 @@ function renderTasks() {
   }
 }
 
-function openFromCalendar(i){
-  document.getElementById('task-'+i).scrollIntoView({behavior:'smooth'});
-}
-
 function addTask() {
   const titleInput = document.getElementById('title');
   const descInput = document.getElementById('desc');
   const dateInput = document.getElementById('date');
   const importantInput = document.getElementById('important');
+  const recurringInput = document.getElementById('recurring');
   const fileInput = document.getElementById('file');
 
-  // VALIDACIÓN: Evita guardar si el título está vacío
   if (!titleInput.value.trim()) {
+    showToast("Por favor ingresa un título para la tarea", "error");
     titleInput.style.borderColor = "red";
     setTimeout(() => titleInput.style.borderColor = "", 2000);
     return;
@@ -161,24 +295,37 @@ function addTask() {
   const desc = descInput.value;
   const date = dateInput.value;
   const important = importantInput.checked;
+  const recurring = recurringInput.value;
   const file = fileInput.files[0];
 
-  // Función interna para procesar el guardado y limpiar
-  const processSave = (fileData) => {
-    tasks.push({ title, desc, date, fileData, important, completed: false, createdAt: new Date().toISOString() });
-    saveTasks();
+  const processSave = async (fileData) => {
+    const newTask = { 
+      title, 
+      desc, 
+      date, 
+      fileData, 
+      important, 
+      recurring, 
+      completed: false, 
+      notified: false, 
+      createdAt: new Date().toISOString() 
+    };
     
-    // LIMPIEZA: Resetear el formulario
+    await dbManager.save(newTask);
+    tasks = await dbManager.getAll();
+
     titleInput.value = '';
     descInput.value = '';
     dateInput.value = '';
     importantInput.checked = false;
+    recurringInput.value = 'none';
     fileInput.value = '';
 
-    // ACTUALIZAR VISTA
     renderStats();
     renderTasks();
     renderCalendar();
+
+    showToast("¡Tarea creada con éxito!", "success");
   };
 
   if (file) {
@@ -190,109 +337,171 @@ function addTask() {
   }
 }
 
-function saveTask(title,desc,date,fileData,important){
-  tasks.push({title,desc,date,fileData,important,completed:false, createdAt: new Date().toISOString()});
-  saveTasks(); renderStats(); renderTasks(); renderCalendar();
+function openEdit(id){
+  editId = id;
+  const t = tasks.find(task => task.id === id);
+  if(!t) return;
+
+  document.getElementById('editTitle').value = t.title;
+  document.getElementById('editDesc').value = t.desc || '';
+  document.getElementById('editDate').value = t.date || '';
+  document.getElementById('editImportant').checked = t.important;
+  document.getElementById('editRecurring').value = t.recurring || 'none';
+
+  document.getElementById('editModal').style.display = 'flex';
 }
 
-function openEdit(i){
-  editIndex=i;
-  const t=tasks[i];
+async function saveEdit(){
+  const t = tasks.find(task => task.id === editId);
+  if(!t) return;
 
-  document.getElementById('editTitle').value=t.title;
-  document.getElementById('editDesc').value=t.desc||'';
-  document.getElementById('editDate').value=t.date||'';
-  document.getElementById('editImportant').checked=t.important;
+  t.title = document.getElementById('editTitle').value;
+  t.desc = document.getElementById('editDesc').value;
+  t.date = document.getElementById('editDate').value;
+  t.important = document.getElementById('editImportant').checked;
+  t.recurring = document.getElementById('editRecurring').value;
 
-  document.getElementById('editModal').style.display='flex';
-}
+  const file = document.getElementById('editFile').files[0];
+  
+  const finishEdit = async () => {
+    await dbManager.save(t);
+    tasks = await dbManager.getAll();
+    renderStats(); renderTasks(); renderCalendar(); closeModal();
+    showToast("Tarea actualizada correctamente", "success");
+  };
 
-function saveEdit(){
-  const t=tasks[editIndex];
-
-  t.title=document.getElementById('editTitle').value;
-  t.desc=document.getElementById('editDesc').value;
-  t.date=document.getElementById('editDate').value;
-  t.important=document.getElementById('editImportant').checked;
-
-  const file=document.getElementById('editFile').files[0];
   if(file){
-    const reader=new FileReader();
-    reader.onload=e=>{
-      t.fileData=e.target.result;
-      saveTasks(); renderStats(); renderTasks(); renderCalendar(); closeModal();
+    const reader = new FileReader();
+    reader.onload = async e => {
+      t.fileData = e.target.result;
+      await finishEdit();
     };
     reader.readAsDataURL(file);
   } else {
-    saveTasks(); renderStats(); renderTasks(); renderCalendar(); closeModal();
+    await finishEdit();
   }
 }
 
-function removeFile(){
-  tasks[editIndex].fileData=null;
-  saveTasks(); renderStats(); renderTasks(); renderCalendar();
+async function removeFile(){
+  const t = tasks.find(task => task.id === editId);
+  if(t) {
+    t.fileData = null;
+    await dbManager.save(t);
+    tasks = await dbManager.getAll();
+    renderStats(); renderTasks(); renderCalendar();
+    showToast("Archivo adjunto eliminado", "info");
+  }
 }
 
 function closeModal(){ document.getElementById('editModal').style.display='none'; }
 
-function openFile(i){
-  const win=window.open();
-  win.document.write(`<iframe src="${tasks[i].fileData}" style="width:100%;height:100%"></iframe>`);
-}
-
-function deleteTask(i){
-  if(confirm('¿Eliminar?')){
-    tasks.splice(i,1);
-    saveTasks(); renderStats(); renderTasks(); renderCalendar();
+function openFileById(id){
+  const t = tasks.find(task => task.id === id);
+  if(t && t.fileData) {
+    const win = window.open();
+    win.document.write(`<iframe src="${t.fileData}" style="width:100%;height:100%"></iframe>`);
   }
 }
 
-function toggleComplete(i) {
-  tasks[i].completed = !tasks[i].completed;
-  saveTasks();
-  renderTasks();
-  renderStats(); // Para que el porcentaje suba al instante
+async function deleteTask(id){
+  if(confirm('¿Eliminar esta tarea?')){
+    await dbManager.delete(id);
+    tasks = await dbManager.getAll();
+    renderStats(); renderTasks(); renderCalendar();
+    showToast("Tarea eliminada", "info");
+  }
 }
 
-function autoCleanOldTasks() {
+function getNextDate(dateStr, frequency) {
+  if (!dateStr) return null;
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+
+  if (frequency === 'daily') {
+    date.setDate(date.getDate() + 1);
+  } else if (frequency === 'weekly') {
+    date.setDate(date.getDate() + 7);
+  } else if (frequency === 'monthly') {
+    date.setMonth(date.getMonth() + 1);
+  } else {
+    return null;
+  }
+
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+async function toggleComplete(id) {
+  const t = tasks.find(task => task.id === id);
+  if(t) {
+    const wasCompleted = t.completed;
+    t.completed = !t.completed;
+    await dbManager.save(t);
+
+    if (!wasCompleted && t.recurring && t.recurring !== 'none' && t.date) {
+      const nextDate = getNextDate(t.date, t.recurring);
+      
+      if (nextDate) {
+        const nextTask = {
+          title: t.title,
+          desc: t.desc,
+          date: nextDate,
+          fileData: t.fileData,
+          important: t.important,
+          recurring: t.recurring,
+          completed: false,
+          notified: false,
+          createdAt: new Date().toISOString()
+        };
+        await dbManager.save(nextTask);
+        showToast(`Tarea completada. Siguiente programada para ${nextDate}`, "success");
+      }
+    } else {
+      showToast(t.completed ? "Tarea completada" : "Tarea marcada como pendiente", "info");
+    }
+
+    tasks = await dbManager.getAll();
+    renderTasks();
+    renderStats(); 
+    renderCalendar();
+  }
+}
+
+async function autoCleanOldTasks() {
   const now = new Date();
-  const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000; // 14 días en milisegundos
-  
-  // Guardamos la longitud inicial para saber si realmente se borró algo
-  const initialLength = tasks.length;
+  const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000; 
+  let deletedCount = 0;
 
-  tasks = tasks.filter(task => {
-    // CASO 1: Tiene fecha límite
+  for (const task of tasks) {
+    let shouldDelete = false;
     if (task.date) {
-      // Forzamos que la fecha límite se evalúe al final del día (T23:59:59)
       const deadlineDate = new Date(task.date + 'T23:59:59');
-      return (now - deadlineDate) < TWO_WEEKS_MS;
-    }
-    
-    // CASO 2: No tiene fecha límite (depende de createdAt)
-    if (task.createdAt) {
+      shouldDelete = (now - deadlineDate) >= TWO_WEEKS_MS;
+    } else if (task.createdAt) {
       const createdDate = new Date(task.createdAt);
-      return (now - createdDate) < TWO_WEEKS_MS;
+      shouldDelete = (now - createdDate) >= TWO_WEEKS_MS;
     }
 
-    // Respaldo por seguridad: Si es una tarea vieja que no tiene 'createdAt',
-    // la dejamos pasar para que no se borre de golpe hasta que empiece a registrar fechas.
-    return true;
-  });
+    if(shouldDelete) {
+      await dbManager.delete(task.id);
+      deletedCount++;
+    }
+  }
 
-  // Si el tamaño del array cambió, guardamos y actualizamos la interfaz
-  if (tasks.length !== initialLength) {
-    saveTasks();
-    console.log(`🧹 Limpieza automática: Se eliminaron ${initialLength - tasks.length} tareas obsoletas.`);
+  if (deletedCount > 0) {
+    tasks = await dbManager.getAll();
+    showToast(`Limpieza automática: ${deletedCount} tareas obsoletas eliminadas.`, "info");
   }
 }
 
 function renderCalendar(){
   const calendar = document.getElementById('calendar');
   const label = document.getElementById('monthLabel');
+  if(!calendar) return;
   calendar.innerHTML = '';
 
-  // Nota: Asegúrate de usar 'firstDay' en tu bucle de espacios vacíos en lugar de 'startingDay'
   const firstDay = new Date(currentYear, currentMonth, 1).getDay();
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
 
@@ -306,23 +515,19 @@ function renderCalendar(){
     html += `<div style="font-weight:bold; font-size:0.8em; padding-bottom:5px;">${day}</div>`;
   });
 
-  // CORRECCIÓN: Cambié 'startingDay' por 'firstDay' que es la variable que declaras arriba
   for(let i = 0; i < firstDay; i++) html += '<div></div>';
 
-  // OBTENER LA FECHA LOCAL DE HOY (Formato YYYY-MM-DD)
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   for(let d = 1; d <= daysInMonth; d++){
     const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const count = tasks.filter(t => t.date === dateStr).length;
-    
-    // CORRECCIÓN: Comparamos directamente contra la cadena de fecha local
     const isToday = todayStr === dateStr;
 
     html += `
-      <div style="padding:8px 2px; border-radius:8px; background:${isToday ? '#4cadfc' : '#eee'}; 
-           color:${isToday ? 'white' : 'black'}; text-align:center; cursor:pointer; font-size:0.9em;" 
+      <div class="dar ${isToday ? 'calendar-today' : ''}" 
+           style="padding:8px 2px; border-radius:8px; text-align:center; cursor:pointer; font-size:0.9em;" 
            onclick="showDayTasks('${dateStr}')">
         ${d}${count > 0 ? `<br><b style="font-size:0.7em;">• ${count}</b>` : ''}
       </div>`;
@@ -344,41 +549,275 @@ function nextMonth(){
   renderCalendar();
 }
 
-function showDayTasks(date){
-  const list=document.getElementById('dayTasks');
-  const title=document.getElementById('dayTitle');
+function showDayTasks(date) {
+  const list = document.getElementById('dayTasks');
+  const title = document.getElementById('dayTitle');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); 
 
-  const dayTasks=tasks.map((t,i)=>({...t,index:i})).filter(t=>t.date===date);
+  const dayTasks = tasks.filter(t => t.date === date);
+
   title.textContent = "Tareas para " + date;
 
-  if(dayTasks.length===0){
-    list.innerHTML = "<p>No hay tareas este día</p>";
+  if (dayTasks.length === 0) {
+    list.innerHTML = "<p style='text-align:center; color:gray;'>No hay tareas este día</p>";
   } else {
-    list.innerHTML = dayTasks.map(t=>
-      `<div class="link-task" onclick="goToTask(${t.index})">• ${t.title}</div>`
-    ).join('');
+    list.innerHTML = '';
+
+    dayTasks.forEach((task) => {
+      const taskDate = task.date ? new Date(task.date + 'T00:00:00') : null;
+      const isOverdue = taskDate && taskDate < today && !task.completed;
+      const isToday = taskDate && taskDate.getTime() === today.getTime() && !task.completed;
+
+      let statusClass = '';
+      if (task.important && !task.completed) statusClass = 'priority-important';
+      if (isToday) statusClass = 'near-deadline';
+      if (isOverdue) statusClass = 'overdue';
+
+      const div = document.createElement('div');
+      div.className = `card ${statusClass} ${task.completed ? 'task-done' : ''}`;
+      div.style.marginBottom = "15px"; 
+
+      div.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: start; gap: 10px;">
+          <div style="flex: 1;">
+            <strong class="link-task" onclick="goToTask(${task.id})" style="cursor:pointer; text-decoration:underline; color:#007bff;">
+              ${task.title} 🔍
+            </strong><br>
+            <small>${task.desc || ''}</small>
+            ${task.fileData ? `<br><span class="file-link" onclick="openFileById(${task.id})">📎 Ver archivo</span>` : ''}
+          </div>
+          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right;">
+            ${task.important ? '<span>⭐</span>' : ''}
+            ${task.recurring && task.recurring !== 'none' ? `<small style="color: #4cadfc; font-weight: bold; font-size: 0.75em;">🔄 ${task.recurring}</small>` : ''}
+            <div class="date" style="font-size: 0.85em; width: 100%; font-weight: ${isToday ? 'bold' : 'normal'}">
+              ${task.date || 'Sin fecha'} ${isToday ? '— ¡Es hoy!' : ''}
+            </div>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn-complete" onclick="toggleCompleteFromModal(${task.id}, '${date}')">${task.completed ? '↩️' : '✅'}</button>
+          <button class="btn-edit" onclick="openEditFromModal(${task.id})">✏️</button>
+          <button class="btn-delete" onclick="deleteTaskFromModal(${task.id}, '${date}')">🗑️</button>
+        </div>
+      `;
+      list.appendChild(div);
+    });
   }
 
-  document.getElementById('dayModal').style.display='flex';
+  document.getElementById('dayModal').style.display = 'flex';
 }
 
-function goToTask(i){
+async function toggleCompleteFromModal(id, date) {
+  await toggleComplete(id);
+  renderCalendar();
+  showDayTasks(date); 
+}
+
+async function deleteTaskFromModal(id, date) {
+  if (confirm('¿Eliminar?')) {
+    await dbManager.delete(id);
+    tasks = await dbManager.getAll();
+    renderTasks();
+    renderStats();
+    renderCalendar();
+    showDayTasks(date); 
+    showToast("Tarea eliminada", "info");
+  }
+}
+
+function openEditFromModal(id) {
+  closeDayModal(); 
+  openEdit(id);
+}
+
+function goToTask(id){
   closeDayModal();
+  currentFilter = 'all'; 
+  searchQuery = '';
+  
+  const searchBar = document.getElementById('searchBar');
+  if (searchBar) searchBar.value = ''; 
+  
+  renderStats();
+  renderTasks();
+
   setTimeout(()=>{
-    document.getElementById('task-'+i).scrollIntoView({behavior:'smooth'});
+    const targetTask = document.getElementById('task-'+id);
+    if (targetTask) {
+      targetTask.scrollIntoView({behavior:'smooth'});
+    }
   },200);
 }
 
 function closeDayModal(){ document.getElementById('dayModal').style.display='none'; }
 
-// Registrar el Service Worker
+// --- GESTIÓN DE NOTIFICACIONES NATIVAS ---
+async function requestNotificationPermission() {
+  if (!("Notification" in window)) {
+    showToast("Este navegador no soporta notificaciones", "error");
+    return;
+  }
+
+  const permission = await Notification.requestPermission();
+  if (permission === "granted") {
+    showNotification("¡Notificaciones activadas!", "Te avisaremos cuando tus tareas venzan.");
+    showToast("Permisos de notificación concedidos", "success");
+  } else {
+    showToast("Permisos de notificación denegados", "error");
+  }
+}
+
+function showNotification(title, body) {
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.ready.then(registration => {
+      registration.showNotification(title, {
+        body: body,
+        icon: 'icon-192.png',
+        badge: 'icon-192.png',
+        vibrate: [200, 100, 200]
+      });
+    });
+  } else if (Notification.permission === "granted") {
+    new Notification(title, { body });
+  }
+}
+
+async function checkDueTasksAndNotify() {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let updated = false;
+
+  for (const task of tasks) {
+    if (task.completed || task.notified) continue;
+
+    if (task.date) {
+      const [year, month, day] = task.date.split('-');
+      const taskDate = new Date(year, month - 1, day);
+      taskDate.setHours(0, 0, 0, 0);
+
+      if (taskDate <= today) {
+        const isToday = taskDate.getTime() === today.getTime();
+        const title = isToday ? "⏰ ¡Tarea para hoy!" : "🚨 ¡Tarea vencida!";
+        const body = `La tarea "${task.title}" requiere tu atención.`;
+
+        showNotification(title, body);
+
+        task.notified = true;
+        await dbManager.save(task);
+        updated = true;
+      }
+    }
+  }
+
+  if (updated) {
+    tasks = await dbManager.getAll();
+  }
+}
+
+// --- COPIA DE SEGURIDAD (EXPORTAR E IMPORTAR) ---
+async function exportData() {
+  try {
+    const allTasks = await dbManager.getAll();
+    
+    if (allTasks.length === 0) {
+      showToast("No hay tareas para exportar", "info");
+      return;
+    }
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(allTasks, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    
+    const date = new Date().toISOString().split('T')[0];
+    downloadAnchor.setAttribute("download", `tareas_backup_${date}.json`);
+    
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+
+    showToast("Copia de seguridad descargada", "success");
+  } catch (error) {
+    console.error("Error al exportar datos:", error);
+    showToast("Error al exportar las tareas", "error");
+  }
+}
+
+async function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      const importedTasks = JSON.parse(e.target.result);
+      
+      if (!Array.isArray(importedTasks)) {
+        showToast("El archivo seleccionado no es válido", "error");
+        return;
+      }
+
+      if (confirm(`Se encontraron ${importedTasks.length} tareas. ¿Deseas importarlas?`)) {
+        for (const task of importedTasks) {
+          delete task.id; 
+          await dbManager.save(task);
+        }
+
+        tasks = await dbManager.getAll();
+        renderStats();
+        renderTasks();
+        renderCalendar();
+        
+        showToast("¡Copia de seguridad importada con éxito!", "success");
+      }
+    } catch (error) {
+      console.error("Error al leer el archivo JSON:", error);
+      showToast("El archivo no es un JSON válido", "error");
+    } finally {
+      event.target.value = '';
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Manejar accesos directos desde el Manifest
+function handleShortcuts() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const action = urlParams.get('action');
+
+  if (action === 'new') {
+    const addDetails = document.querySelector('.card details');
+    if (addDetails) addDetails.open = true;
+  } else if (action === 'calendar') {
+    const calendarCard = document.getElementById('calendar');
+    if (calendarCard) calendarCard.scrollIntoView({ behavior: 'smooth' });
+  }
+}
+
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js");
 }
 
-// 👇 EJECUTAR LIMPIEZA ANTES DE RENDERIZAR
-autoCleanOldTasks();
+// --- ARRANQUE DE LA APLICACIÓN ---
+async function initApp() {
+  try {
+    await dbManager.init();
+    tasks = await dbManager.getAll();
+    await autoCleanOldTasks();
+    
+    await checkDueTasksAndNotify();
 
-renderTasks();
-renderStats();
-renderCalendar();
+    renderTasks();
+    renderStats();
+    renderCalendar();
+
+    handleShortcuts();
+  } catch (error) {
+    console.error("No se pudo iniciar la aplicación correctamente:", error);
+    showToast("Error al iniciar la base de datos", "error");
+  }
+}
+
+initApp();

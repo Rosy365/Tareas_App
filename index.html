@@ -8,85 +8,110 @@
 <link rel="manifest" href="manifest.json">
 </head>
 <body>
-<div class="container">
-  <h1>Mis Tareas</h1>
-  <div class="darky">
-  <button id="themeToggle" class="btn-dark" onclick="toggleDarkMode()">
-    🌙
-  </button>
-</div>
-  
-  <div class="card">
-    <input type="text" id="title" placeholder="Nombre de la tarea">
-    <textarea id="desc" placeholder="Descripción"></textarea>
-    <div class="opc">
-        <input type="date" id="date" class="date">
-        <label>⭐ Importante<input type="checkbox" id="important"></label>
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <h1 style="margin: 0;">Tareas</h1>
+      <div class="darky" style="gap: 5px; display: flex;">
+        <button id="notifToggle" class="btn-dark" onclick="requestNotificationPermission()" title="Activar notificaciones">🔔</button>
+        <button id="themeToggle" class="btn-dark" onclick="toggleDarkMode()">🌙</button>
+      </div>
     </div>
-    <input type="file" id="file">
-    <div class="darky"><button class="btn-primary" onclick="addTask()">💾</button></div>
-  </div>
 
+    <div class="card" style="padding: 15px;">
+      <details>
+        <summary style="font-size: 1.1em; font-weight: bold; cursor: pointer; user-select: none;">
+          📝 Agregar Tarea
+        </summary>
+        <div style="display: block; margin-top: 10px;">
+          <input type="text" id="title" placeholder="Nombre de la tarea">
+          <textarea id="desc" placeholder="Descripción"></textarea>
+          <div class="opc" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            <input type="date" id="date" class="date">
+            <select id="recurring" style="width: auto; padding: 8px;">
+              <option value="none">Sin repetición</option>
+              <option value="Diaria">Diaria</option>
+              <option value="Semanal">Semanal</option>
+              <option value="Mensual">Mensual</option>
+            </select>
+            <label>
+              ⭐ Importante <input type="checkbox" id="important">
+            </label>
+          </div>
+          <input type="file" id="file" style="margin-top: 10px;">
+        </div>
+        <div class="darky" style="margin-top: 10px;">
+          <button class="btn-primary" onclick="addTask()">💾</button>
+        </div>
+      </details>
+    </div>
+
+    <!-- Modal calendario -->
+    <div class="modal" id="dayModal">
+      <div class="modal-content">
+        <h3 id="dayTitle"></h3>
+        <div id="dayTasks"></div>
+        <button class="osc" onclick="closeDayModal()">❌</button>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 15px;">
+      <details open>
+        <summary style="font-size: 1.1em; font-weight: bold; cursor: pointer; user-select: none;">
+          📅 Calendario
+        </summary>
+        <div class="calendar-header">
+          <button class="osc" onclick="prevMonth()">⬅️</button>
+          <strong id="monthLabel"></strong>
+          <button class="osc" onclick="nextMonth()">➡️</button>
+        </div>
+        <div id="calendar"></div>
+      </details>
+    </div>
+
+    <!-- Copia de Seguridad -->
+    <div class="card" style="padding: 15px;">
+      <details>
+        <summary style="font-size: 1.1em; font-weight: bold; cursor: pointer; user-select: none;">
+          💾 Copia de Seguridad
+        </summary>
+        <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center; flex-wrap: wrap;">
+          <button class="btn-primary" onclick="exportData()" style="flex: 1; min-width: 120px; cursor: pointer;">Exportar JSON</button>
+          <label class="btn-filter" style="flex: 1; min-width: 120px; text-align: center; display: inline-block; padding: 10px; cursor: pointer; margin-top: 5px;">
+            Importar JSON <input type="file" id="importFile" accept=".json" style="display: none;" onchange="importData(event)">
+          </label>
+        </div>
+      </details>
+    </div>
+    
     <div class="card" id="stats"></div>
+    
+    <div id="tasks"></div>
 
-  <!-- Modal calendario -->
-<div class="modal" id="dayModal">
-  <div class="modal-content">
-    <h3 id="dayTitle"></h3>
-    <div id="dayTasks"></div>
-    <button onclick="closeDayModal()">❌</button>
-  </div>
-</div>
-
-<div class="container">
-  <div class="card">
-    <h3>📅 Calendario</h3>
-    <div class="calendar-header">
-      <button onclick="prevMonth()">⬅️</button>
-      <strong id="monthLabel"></strong>
-      <button onclick="nextMonth()">➡️</button>
+    <div class="modal" id="editModal">
+      <div class="modal-content">
+        <h3>✏️ Editar tarea</h3>
+        <input type="text" id="editTitle">
+        <textarea id="editDesc"></textarea>
+        <div class="opc" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+          <input type="date" id="editDate" class="date">
+          <select id="editRecurring" style="width: auto; padding: 8px;">
+            <option value="none">Sin repetición</option>
+            <option value="Diaria">Diaria</option>
+            <option value="Semanal">Semanal</option>
+            <option value="Mensual">Mensual</option>
+          </select>
+          <label><input type="checkbox" id="editImportant">⭐</label>
+        </div>
+        <input type="file" id="editFile" style="margin-top: 10px;">
+        <div style="display: flex; gap: 5px; margin-top: 15px;">
+          <button class="osc" onclick="saveEdit()" style="flex: 1;">💾</button>
+          <button class="osc" onclick="removeFile()" style="flex: 1;">🗑️📎</button>
+          <button class="osc" onclick="closeModal()" style="flex: 1;">❌</button>
+        </div>
+      </div>
     </div>
-    <div id="calendar"></div>
-  </div>
-</div>
 
-  <div class="card">
-    <input type="text" id="searchBar" placeholder="🔍 Buscar tarea..." onkeyup="updateSearch()">
-    <div style="display: flex; gap: 5px; overflow-x: auto; margin-top: 10px; padding-bottom: 5px;">
-      <button class="btn-filter active" onclick="filterTasks('pending', this)">📓</button>
-      <button class="btn-filter" onclick="filterTasks('important', this)">⭐</button>
-      <button class="btn-filter" onclick="filterTasks('normal', this)">📄</button>
-      <button class="btn-filter" onclick="filterTasks('completed', this)">✅</button>
-      <button class="btn-filter" onclick="filterTasks('all', this)">📚</button>
-    </div>
-  </div>
-  <div id="tasks"></div>
+  <script src="script.js"></script>
 </div>
-
-<div class="modal" id="dayModal">
-  <div class="modal-content">
-    <h3 id="dayTitle"></h3>
-    <div id="dayTasks"></div>
-    <button onclick="closeDayModal()">Cerrar</button>
-  </div>
-</div>
-
-<div class="modal" id="editModal">
-  <div class="modal-content">
-    <h3>Editar tarea</h3>
-    <input type="text" id="editTitle">
-    <textarea id="editDesc"></textarea>
-    <div class="opc">
-      <input type="date" id="editDate" class="date">
-      <label><input type="checkbox" id="editImportant">⭐</label>
-    </div>
-    <input type="file" id="editFile">
-    <button onclick="saveEdit()">💾</button>
-    <button onclick="removeFile()">🗑️📎</button>
-    <button onclick="closeModal()">❌</button>
-  </div>
-</div>
-
-<script src="script.js"></script>
 </body>
 </html>
