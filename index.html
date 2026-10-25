@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lista de Tareas</title>
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+</head>
+<body>
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <h1 style="margin: 0;">Tareas</h1>
+      <div class="darky" style="gap: 5px; display: flex;">
+        <button id="notifToggle" class="btn-dark" onclick="requestNotificationPermission()" title="Activar notificaciones">🔔</button>
+        <button id="themeToggle" class="btn-dark" onclick="toggleDarkMode()">🌙</button>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 15px;">
+      <details>
+        <summary style="font-size: 1.1em; font-weight: bold; cursor: pointer; user-select: none;">
+          📝 Agregar Tarea
+        </summary>
+        <div style="display: block; margin-top: 10px;">
+          <input type="text" id="title" placeholder="Nombre de la tarea">
+          <textarea id="desc" placeholder="Descripción"></textarea>
+          <div class="opc" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            <input type="date" id="date" class="date">
+            <select id="recurring" style="width: auto; padding: 8px;">
+              <option value="none">Sin repetición</option>
+              <option value="Diaria">Diaria</option>
+              <option value="Semanal">Semanal</option>
+              <option value="Mensual">Mensual</option>
+            </select>
+            <label>
+              ⭐ Importante <input type="checkbox" id="important">
+            </label>
+          </div>
+          <input type="file" id="file" style="margin-top: 10px;">
+        </div>
+        <div class="darky" style="margin-top: 10px;">
+          <button class="btn-primary" onclick="addTask()">💾</button>
+        </div>
+      </details>
+    </div>
+
+    <!-- Modal calendario -->
+    <div class="modal" id="dayModal">
+      <div class="modal-content">
+        <h3 id="dayTitle"></h3>
+        <div id="dayTasks"></div>
+        <button class="osc" onclick="closeDayModal()">❌</button>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 15px;">
+      <details open>
+        <summary style="font-size: 1.1em; font-weight: bold; cursor: pointer; user-select: none;">
+          📅 Calendario
+        </summary>
+        <div class="calendar-header">
+          <button class="osc" onclick="prevMonth()">⬅️</button>
+          <strong id="monthLabel"></strong>
+          <button class="osc" onclick="nextMonth()">➡️</button>
+        </div>
+        <div id="calendar"></div>
+      </details>
+    </div>
+
+    <!-- Copia de Seguridad -->
+    <div class="card" style="padding: 15px;">
+      <details>
+        <summary style="font-size: 1.1em; font-weight: bold; cursor: pointer; user-select: none;">
+          💾 Copia de Seguridad
+        </summary>
+        <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center; flex-wrap: wrap;">
+          <button class="btn-primary" onclick="exportData()" style="flex: 1; min-width: 120px; cursor: pointer;">Exportar JSON</button>
+          <label class="btn-filter" style="flex: 1; min-width: 120px; text-align: center; display: inline-block; padding: 10px; cursor: pointer; margin-top: 5px;">
+            Importar JSON <input type="file" id="importFile" accept=".json" style="display: none;" onchange="importData(event)">
+          </label>
+        </div>
+      </details>
+    </div>
+    
+    <div class="card" id="stats"></div>
+    
+    <div id="tasks"></div>
+
+    <div class="modal" id="editModal">
+      <div class="modal-content">
+        <h3>✏️ Editar tarea</h3>
+        <input type="text" id="editTitle">
+        <textarea id="editDesc"></textarea>
+        <div class="opc" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+          <input type="date" id="editDate" class="date">
+          <select id="editRecurring" style="width: auto; padding: 8px;">
+            <option value="none">Sin repetición</option>
+            <option value="Diaria">Diaria</option>
+            <option value="Semanal">Semanal</option>
+            <option value="Mensual">Mensual</option>
+          </select>
+          <label><input type="checkbox" id="editImportant">⭐</label>
+        </div>
+        <input type="file" id="editFile" style="margin-top: 10px;">
+        <div style="display: flex; gap: 5px; margin-top: 15px;">
+          <button class="osc" onclick="saveEdit()" style="flex: 1;">💾</button>
+          <button class="osc" onclick="removeFile()" style="flex: 1;">🗑️📎</button>
+          <button class="osc" onclick="closeModal()" style="flex: 1;">❌</button>
+        </div>
+      </div>
+    </div>
+
+  <script src="script.js"></script>
+</div>
+</body>
+</html>
